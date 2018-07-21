@@ -1,6 +1,6 @@
 module Language.Chameleon.Token.Cooked
     ( Token(..)
-    , thePayload
+    , thePayload, theLocation
     , TokenType(..), DelimiterType(..), SeparatorType(..)
     , TokenError(..), TokenErrorType(..)
     , theErrType, theErrLoc
@@ -27,6 +27,9 @@ data Token atom = Tok (TokenType atom) Location
 
 thePayload :: Token atom -> TokenType atom
 thePayload (Tok it _) = it
+
+theLocation :: Token atom -> Location
+theLocation (Tok _ it) = it
 
 
 data TokenType atom
@@ -97,7 +100,7 @@ clean config allRaw =
     in (cooked, cookedErrs)
 
 
-type Indent = (Int, Location)
+type Indent = (Int, Location, Text)
 type Line raw = (Indent, [RawToken raw])
 lineTokens :: [RawToken raw] -> [Line raw]
 lineTokens input = case break isNewline input of
@@ -105,10 +108,10 @@ lineTokens input = case break isNewline input of
             in mkLine line : lineTokens rest
         (line, []) -> [mkLine line]
     where
-    mkLine (Raw (Raw.Indentation level) loc : line) = ((level, loc), line)
-    mkLine line@(Raw _ (loc, _) : _) = ((0, (loc, loc)), line)
+    mkLine (Raw (Raw.Indentation level) loc text : line) = ((level, loc, text), line)
+    mkLine line@(Raw _ Location{..} text : _) = ((0, Location{loc_end=loc_start, ..}, ""), line)
     mkLine [] = error "internal error"
-    isNewline (Raw Raw.Newline _) = True
+    isNewline (Raw Raw.Newline _ _) = True
     isNewline _ = False
 
 -- after lineTokens, there should be no more indent tokens
@@ -118,59 +121,59 @@ lineTokens input = case break isNewline input of
 
 mergeRawErrors :: [RawToken raw] -> [Location]
 mergeRawErrors [] = []
-mergeRawErrors [Raw Raw.Error loc] = [loc]
-mergeRawErrors (Raw Raw.Error loc : rest) =
-    let (merged, continue) = chainErrs loc rest
+mergeRawErrors [Raw Raw.Error loc _] = [loc]
+mergeRawErrors (Raw Raw.Error loc _ : rest) =
+    let (merged, continue) = loop loc rest
     in merged : mergeRawErrors continue
     where
-    chainErrs :: Location -> [RawToken raw] -> (Location, [RawToken raw])
-    chainErrs (startLoc, midLoc1) (Raw Raw.Error (midLoc2, endLoc) : rest)
-        | midLoc1 == midLoc2 = chainErrs (startLoc, endLoc) rest
-    chainErrs loc rest = (loc, rest)
+    loop :: Location -> [RawToken raw] -> (Location, [RawToken raw])
+    loop startLoc (Raw Raw.Error nextLoc _ : rest)
+        | loc_start startLoc == loc_end nextLoc = loop (startLoc `mergeLoc` nextLoc) rest
+    loop loc rest = (loc, rest)
 
 warnLeadingAlign :: [RawToken raw] -> [Location]
-warnLeadingAlign (Raw Raw.AlignMark loc : _) = [loc]
+warnLeadingAlign (Raw Raw.AlignMark loc _ : _) = [loc]
 warnLeadingAlign _ = []
 
 warnTrailingSpace :: [RawToken raw] -> [Location]
 warnTrailingSpace raw = Raw.theLocation <$> filter Raw.isTrailingSpace raw
 
 warnNoNewlineAtEof :: [RawToken raw] -> [Location]
-warnNoNewlineAtEof [Raw Raw.EndFile _] = []
+warnNoNewlineAtEof [Raw Raw.EndFile _ _] = []
 warnNoNewlineAtEof line = [Raw.theLocation $ last line]
 
 warnNoLebensraum :: [RawToken raw] -> [Location]
-warnNoLebensraum (before : Raw (Raw.Id _) loc2 : rest)
-    | isCrowdedBefore before = (fst $ Raw.theLocation before, snd loc2) : rec
+warnNoLebensraum (before : Raw (Raw.Id _) loc2 _ : rest)
+    | isCrowdedBefore before = Raw.theLocation before `mergeLoc` loc2 : rec
     | otherwise = rec
     where rec = warnNoLebensraum rest
-warnNoLebensraum (Raw (Raw.Separate _) loc1 : after : rest)
-    | isCrowdedAfter after = (fst loc1, snd $ Raw.theLocation after) : rec
+warnNoLebensraum (Raw (Raw.Separate _) loc1 _ : after : rest)
+    | isCrowdedAfter after = loc1 `mergeLoc` Raw.theLocation after : rec
     | otherwise = rec
     where rec = warnNoLebensraum (after : rest)
-warnNoLebensraum (Raw (Raw.Close _) loc1 : after : rest)
-    | isCrowdedAfter after = (fst loc1, snd $ Raw.theLocation after) : rec
+warnNoLebensraum (Raw (Raw.Close _) loc1 _ : after : rest)
+    | isCrowdedAfter after = loc1 `mergeLoc` Raw.theLocation after : rec
     | otherwise = rec
     where rec = warnNoLebensraum (after : rest)
-warnNoLebensraum (before : Raw (Raw.Atom _) loc2 : rest)
-    | isCrowdedBefore before = (fst $ Raw.theLocation before, snd $ loc2) : rec
+warnNoLebensraum (before : Raw (Raw.Atom _) loc2 _ : rest)
+    | isCrowdedBefore before = Raw.theLocation before `mergeLoc` loc2 : rec
     | otherwise = rec
     where rec = warnNoLebensraum rest
-warnNoLebensraum (Raw (Raw.Atom _) loc1 : after : rest)
-    | isCrowdedAfter after = (fst loc1, snd $ Raw.theLocation after) : rec
+warnNoLebensraum (Raw (Raw.Atom _) loc1 _ : after : rest)
+    | isCrowdedAfter after = loc1 `mergeLoc` Raw.theLocation after : rec
     | otherwise = rec
     where rec = warnNoLebensraum (after : rest)
 warnNoLebensraum (_ : rest) = warnNoLebensraum rest
 warnNoLebensraum [] = []
 
 isCrowdedAfter :: RawToken raw -> Bool
-isCrowdedAfter (Raw (Raw.Atom _) _) = True
-isCrowdedAfter (Raw (Raw.Id _) _) = True
+isCrowdedAfter (Raw (Raw.Atom _) _ _) = True
+isCrowdedAfter (Raw (Raw.Id _) _ _) = True
 isCrowdedAfter _ = False
 
 isCrowdedBefore :: RawToken raw -> Bool
-isCrowdedBefore (Raw (Raw.Atom _) _) = True
-isCrowdedBefore (Raw (Raw.Close _) _) = True
+isCrowdedBefore (Raw (Raw.Atom _) _ _) = True
+isCrowdedBefore (Raw (Raw.Close _) _ _) = True
 isCrowdedBefore _ = False
 
 
@@ -178,24 +181,24 @@ removeBoring :: [Line raw] -> [Line raw]
 removeBoring lines = exclude (null . snd) $ second (exclude isIgnorable) <$> lines
 
 isIgnorable :: RawToken raw -> Bool
-isIgnorable (Raw Raw.Newline _) = True
-isIgnorable (Raw Raw.InlineSpace _) = True
+isIgnorable (Raw Raw.Newline _ _) = True
+isIgnorable (Raw Raw.InlineSpace _ _) = True
 -- NOTE indentation isn't boring: it can be a sign of an internal error
-isIgnorable (Raw Raw.LineContinue _) = True
-isIgnorable (Raw Raw.TrailingSpace _) = True
-isIgnorable (Raw Raw.AlignMark _) = True
-isIgnorable (Raw (Raw.SectionMark _ _) _) = True
-isIgnorable (Raw Raw.EndFile _) = True
-isIgnorable (Raw Raw.CommentText _) = True
-isIgnorable (Raw (Raw.Open Raw.Comment) _) = True
-isIgnorable (Raw (Raw.Close Raw.Comment) _) = True
+isIgnorable (Raw Raw.LineContinue _ _) = True
+isIgnorable (Raw Raw.TrailingSpace _ _) = True
+isIgnorable (Raw Raw.AlignMark _ _) = True
+isIgnorable (Raw (Raw.SectionMark _ _) _ _) = True
+isIgnorable (Raw Raw.EndFile _ _) = True
+isIgnorable (Raw Raw.CommentText _ _) = True
+isIgnorable (Raw (Raw.Open Raw.Comment) _ _) = True
+isIgnorable (Raw (Raw.Close Raw.Comment) _ _) = True
 isIgnorable _ = False
 
 
 unlineTokens :: [Line raw] -> [RawToken raw]
 unlineTokens = concatMap restoreIndentation
     where
-    restoreIndentation ((level, loc), line) = Raw (Raw.Indentation level) loc : line
+    restoreIndentation ((level, loc, text), line) = Raw (Raw.Indentation level) loc text : line
 
 
 makeClean :: [RawToken raw] -> Clean atom raw [Token atom]
@@ -232,7 +235,7 @@ makeClean (LeadingClose delim loc rest) = do
     (tok:) <$> makeClean rest
 makeClean (LeadingAtom parts loc rest) = do
     makeAtom <- gets makeAtom
-    let tok = Tok (Atom $ makeAtom (Raw.thePayload <$> parts)) loc
+    let tok = Tok (Atom $ makeAtom (fst . Raw.thePayload <$> parts)) loc
     (tok:) <$> makeClean rest
 makeClean [] = pure []
 
@@ -247,37 +250,37 @@ drainDedents level loc = loop
 
 pattern LeadingOpen :: IdType -> DelimiterType -> Location -> [RawToken raw] -> [RawToken raw]
 pattern LeadingOpen id delim loc rest <- (fromOpen -> Just (id, delim, loc, rest))
-fromOpen (Raw (Raw.Id id) (startLoc, _)
-        : Raw (Raw.Open Raw.Indent) _
-        : Raw (Raw.Indentation level) (_, endLoc)
-        : rest) = Just (id, Indent level, (startLoc, endLoc), rest)
-fromOpen (Raw (Raw.Id id) (startLoc, _)
-        : Raw (Raw.Open (xlateDelim -> Just delim)) (_, endLoc)
-        : rest) = Just (id, delim, (startLoc, endLoc), rest)
+fromOpen (Raw (Raw.Id id) startLoc _
+        : Raw (Raw.Open Raw.Indent) _ _
+        : Raw (Raw.Indentation level) endLoc _
+        : rest) = Just (id, Indent level, startLoc `mergeLoc` endLoc, rest)
+fromOpen (Raw (Raw.Id id) startLoc _
+        : Raw (Raw.Open (xlateDelim -> Just delim)) endLoc _
+        : rest) = Just (id, delim, startLoc `mergeLoc` endLoc, rest)
 fromOpen _ = Nothing
 
 restOfBadIndent :: [RawToken raw] -> ([RawToken raw], Location)
-restOfBadIndent (Raw (Raw.Id _) _ : Raw (Raw.Open Raw.Indent) _ : rest@(Raw (Raw.Indentation _) loc : _)) = (rest, loc)
+restOfBadIndent (Raw (Raw.Id _) _ _ : Raw (Raw.Open Raw.Indent) _ _ : rest@(Raw (Raw.Indentation _) loc _ : _)) = (rest, loc)
 restOfBadIndent _ = error "internal error"
 
 pattern LeadingSeparate :: SeparatorType -> Location -> [RawToken raw] -> [RawToken raw]
 pattern LeadingSeparate sep loc rest <- (fromSep -> Just (sep, loc, rest))
-fromSep (Raw (Raw.Separate (xlateSep -> sep)) loc : rest) = Just (sep, loc, rest)
+fromSep (Raw (Raw.Separate (xlateSep -> sep)) loc _ : rest) = Just (sep, loc, rest)
 fromSep _ = Nothing
 
 pattern LeadingClose :: DelimiterType -> Location -> [RawToken raw] -> [RawToken raw]
 pattern LeadingClose delim loc rest <- (fromClose -> Just (delim, loc, rest))
-fromClose (Raw (Raw.Close (xlateDelim -> Just delim)) loc : rest) = Just (delim, loc, rest)
+fromClose (Raw (Raw.Close (xlateDelim -> Just delim)) loc _ : rest) = Just (delim, loc, rest)
 fromClose _ = Nothing
 
 pattern LeadingIndent :: Int -> Location -> [RawToken raw] -> [RawToken raw] -> [RawToken raw]
 pattern LeadingIndent level loc rest backtrack <- (fromIndent -> Just (level, loc, rest, backtrack))
-fromIndent backtrack@(Raw (Raw.Indentation level) loc : rest) = Just (level, loc, rest, backtrack)
+fromIndent backtrack@(Raw (Raw.Indentation level) loc _ : rest) = Just (level, loc, rest, backtrack)
 fromIndent _ = Nothing
 
-pattern LeadingAtom :: [Raw raw] -> Location -> [RawToken raw] -> [RawToken raw]
+pattern LeadingAtom :: [Raw (raw, AtomType)] -> Location -> [RawToken raw] -> [RawToken raw]
 pattern LeadingAtom parts loc rest <- (fromAtom -> Just (parts, loc, rest))
-fromAtom (Raw (Raw.Atom parts) loc : rest) = Just (parts, loc, rest)
+fromAtom (Raw (Raw.Atom parts) loc _ : rest) = Just (parts, loc, rest)
 fromAtom _ = Nothing
 
 xlateDelim :: Raw.DelimiterType -> Maybe DelimiterType

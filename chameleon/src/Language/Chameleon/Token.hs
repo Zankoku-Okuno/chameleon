@@ -1,7 +1,7 @@
 module Language.Chameleon.Token
     ( module Language.Chameleon.Token.Common
     , Token(..), TokenType(..), Cooked.DelimiterType(..), Cooked.SeparatorType(..)
-    , TokenErrorType(..)
+    , TokenError(..), TokenErrorType(..)
     , Config(..)
     , tokenize
     ) where
@@ -20,7 +20,7 @@ import qualified Language.Chameleon.Token.Cooked as Cooked
 
 data Config raw atom = Config
     { parseId :: Raw.Parser IdType
-    , parseAtoms :: Raw.Parser [Raw raw]
+    , parseAtoms :: Raw.Parser [Raw (raw, AtomType)]
     , makeAtom :: [raw] -> atom
     , openFileAs :: Symbol
     , errorOn :: [TokenErrorType]

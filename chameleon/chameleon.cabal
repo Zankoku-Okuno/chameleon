@@ -18,12 +18,13 @@ cabal-version:       >=1.10
 library
   exposed-modules:
     Experiment
+    Control.Monad.WarnErrs
     Language.Chameleon.Token
     Language.Chameleon.Syntax
-  other-modules:
-    Control.Monad.WarnErrs,
-    Language.Chameleon.Token.Common
+    Language.Chameleon.StarterKit
     Language.Chameleon.Token.Raw
+  other-modules:
+    Language.Chameleon.Token.Common
     Language.Chameleon.Token.Cooked
   build-depends:
     base >=4.9 && <5,
@@ -35,7 +36,9 @@ library
   hs-source-dirs: src
   default-language: Haskell2010
   default-extensions:
-    LambdaCase, RecordWildCards, DuplicateRecordFields,
+    DeriveFunctor, GeneralizedNewtypeDeriving,
+    LambdaCase, RecordWildCards, DuplicateRecordFields, TupleSections,
     OverloadedStrings,
-    PatternSynonyms, ViewPatterns
+    PatternSynonyms, ViewPatterns,
+    RankNTypes, ScopedTypeVariables
   -- other-extensions:

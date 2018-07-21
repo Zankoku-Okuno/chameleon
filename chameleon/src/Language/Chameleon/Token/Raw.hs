@@ -1,7 +1,7 @@
 -- FIXME sometimes, I'm using '\n' instead of a platform-agnostic newline
 module Language.Chameleon.Token.Raw
     ( Raw(..)
-    , thePayload, theLocation
+    , thePayload, theLocation, theText
     , RawToken
     , RawTokenType(..), DelimiterType(..), SeparatorType(..)
     , isTrailingSpace, isError
@@ -28,14 +28,18 @@ type Parser = Parsec Void Text
 type TokenError = ParseError Char Void
 
 
-data Raw a = Raw a Location -- NOTE I'm not keeping the original text around; it can be looked up in the original file if needed.
-    deriving(Read, Show)
+-- TODO something that might be useful is location expressed in plain counts through the input stream
+data Raw a = Raw a Location Text
+    deriving(Read, Show, Functor)
 
 thePayload :: Raw a -> a
-thePayload (Raw it _) = it
+thePayload (Raw it _ _) = it
 
 theLocation :: Raw a -> Location
-theLocation (Raw _ it) = it
+theLocation (Raw _ it _) = it
+
+theText :: Raw a -> Text
+theText (Raw _ _ it) = it
 
 type RawToken atom = Raw (RawTokenType atom)
 
@@ -56,7 +60,7 @@ data RawTokenType atom
     -- Content
     | CommentText
     | Id IdType
-    | Atom [Raw atom]
+    | Atom [Raw (atom, AtomType)]
     -- Error Token
     | Error
     deriving(Read, Show)
@@ -75,18 +79,18 @@ data SeparatorType
     deriving(Eq, Read, Show)
 
 isTrailingSpace :: RawToken atom -> Bool
-isTrailingSpace (Raw TrailingSpace _) = True
+isTrailingSpace (Raw TrailingSpace _ _) = True
 isTrailingSpace _ = False
 
 isError :: RawToken atom -> Bool
-isError (Raw Error _) = True
+isError (Raw Error _ _) = True
 isError _ = False
 
 
 
 data Config atom = Config
     { parseId :: Parser IdType
-    , parseAtoms :: Parser [Raw atom]
+    , parseAtoms :: Parser [Raw (atom, AtomType)]
     }
 
 tokenize :: Maybe FilePath -> Config atom -> Text -> [RawToken atom]
@@ -197,10 +201,20 @@ parseWhitespace = choice $
 
 wrap :: Parser a -> Parser (Raw a)
 wrap payload = try $ do
+    originalText <- getInput
+    originalStreamIndex <- getTokensProcessed
     startPos <- getPosition
     payload <- payload
     endPos <- getPosition
-    pure $ Raw payload (startPos, endPos)
+    nextStreamIndex <- getTokensProcessed
+    let loc = Location
+                { loc_file = sourceName startPos
+                , loc_start = (unPos $ sourceLine startPos, unPos $ sourceColumn startPos)
+                , loc_end = (unPos $ sourceLine endPos, unPos $ sourceColumn endPos)
+                }
+    let charLen = nextStreamIndex - originalStreamIndex
+        text = T.take charLen originalText
+    pure $ Raw payload loc text
 
 -- wrapAtom :: Raw atom -> RawToken atom
 -- wrapAtom (Raw atom loc) = Raw (Atom atom) loc

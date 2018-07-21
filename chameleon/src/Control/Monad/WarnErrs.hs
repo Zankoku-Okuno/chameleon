@@ -10,7 +10,12 @@ The warnings are append-only, and cannot even be inspected during computation.
 At the end of computation, either the result or the errors are reported, alongside the collected warnings.
 Errors and warnings are reported in the error they were raised.
 -}
-module Control.Monad.WarnErrs where
+module Control.Monad.WarnErrs
+    ( WarnErrs, runWarnErrs
+    , warn, warns
+    , err, errs
+    , mapErrs
+    ) where
 
 import Data.Foldable
 import Data.Sequence (Seq, (<|), (|>), (><))
@@ -32,12 +37,17 @@ warn warn' = WE $ \warns -> (Right (), warns |> warn')
 warns :: [report] -> WarnErrs report ()
 warns warns' = WE $ \warns -> (Right (), warns >< Seq.fromList warns')
 
-err :: report -> WarnErrs report ()
+err :: report -> WarnErrs report a
 err err = WE $ \warns -> (Left [err], warns)
 
 errs :: [report] -> WarnErrs report ()
 errs [] = WE $ \warns -> (Right (), warns)
 errs errs = WE $ \warns -> (Left errs, warns)
+
+mapErrs :: WarnErrs report a -> (report -> report') -> WarnErrs report' a
+mapErrs (WE action) f = WE $ \warns -> case action Seq.empty of
+    (Left errs, warns') -> (Left (f <$> errs), warns >< (f <$> warns'))
+    (Right x, warns') -> (Right x, warns >< (f <$> warns'))
 
 
 instance Functor (WarnErrs report) where
