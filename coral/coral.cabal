@@ -26,7 +26,7 @@ library
     base >=4.9 && <5,
      -- TODO set verion bounds on chameleon
     chameleon,
-    -- NOTE inheret the symbol version from chameleon
+    -- NOTE inherit the symbol version from chameleon
     symbol,
     text ==1.2.*
   hs-source-dirs:      src
