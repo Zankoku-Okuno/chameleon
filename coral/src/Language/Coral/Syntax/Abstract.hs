@@ -9,13 +9,18 @@ import Data.Compos
 type Name = Symbol -- FIXME parameterizable name --FIXME different categories of name
 
 -- FIXME location data, or other annotations
-data Ast :: AstCat -> * where
-    File :: [Decl] -> File
-    DeclVal :: Name -> Expr -> Decl
-    DeclValDoc :: Name -> Text -> Decl
-    ExprConst :: Const -> Expr
-    -- TODO: ExprPrim (apply primitive operation) -- FIXME parameterizable primitives
-    -- TODO ExprVar (use variable)
+data Ast ann (cat :: AstCat) where
+    --- Declarations ---
+    DeclVal    :: ann -> Name -> Expr ann -> Decl ann
+    -- DeclValDoc :: ann -> Name -> Text -> Decl ann
+    DeclLet :: ann -> [Decl ann] -> [Decl ann] -> Decl ann
+    --- Expressions ---
+    ExprConst  :: ann -> Const -> Expr ann
+    ExprPrim   :: ann -> Symbol -> Expr ann -- FIXME parameterizable primitive operations
+    ExprVar    :: ann -> Symbol -> Expr ann
+    ExprApp    :: ann -> Expr ann -> [Expr ann] -> Expr ann
+    ExprLam    :: ann -> [Name] -> Expr ann -> Expr ann
+    ExprLet    :: ann -> [Decl ann] -> Expr ann -> Expr ann
 
 data Const -- FIXME parameterizable constant type
     = IntConst Integer
@@ -23,18 +28,23 @@ data Const -- FIXME parameterizable constant type
     -- | StrConst Text -- TODO
 
 
+
+
 data AstCat
-    = File_
-    | Decl_
+    = Decl_
     | Expr_
 
-type File = Ast File_
-type Decl = Ast Decl_
-type Expr = Ast Expr_
+type Decl ann = Ast ann Decl_
+type Expr ann = Ast ann Expr_
 
 
-instance Compos Ast where
-    compos f (File decls) = File <$> traverse f decls
-    compos f (DeclVal x e) = DeclVal x <$> f e
-    compos f (DeclValDoc x text) = pure $ DeclValDoc x text
-    compos f (ExprConst c) = pure $ ExprConst c
+instance Compos (Ast ann) where
+    compos f (DeclVal ann x e) = DeclVal ann x <$> f e
+    -- compos f (DeclValDoc ann x text) = pure $ DeclValDoc ann x text
+    compos f (DeclLet ann local ds) = DeclLet ann <$> f `traverse` local <*> f `traverse` ds
+    compos f (ExprConst ann c) = pure $ ExprConst ann c
+    compos f (ExprPrim ann opname) = pure $ ExprPrim ann opname
+    compos f (ExprVar ann x) = pure $ ExprVar ann x
+    compos f (ExprApp ann e es) = ExprApp ann <$> f e <*> f `traverse` es
+    compos f (ExprLam ann x e) = ExprLam ann x <$> f e
+    compos f (ExprLet ann ds e) = ExprLet ann <$> f `traverse` ds <*> f e

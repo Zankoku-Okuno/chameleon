@@ -33,8 +33,30 @@ library
   default-language:    Haskell2010
   default-extensions:
     OverloadedStrings,
-    LambdaCase,
+    LambdaCase, ViewPatterns
     DataKinds, KindSignatures, PolyKinds,
     RankNTypes, GADTs,
     RecordWildCards, DuplicateRecordFields
   -- other-extensions:    
+
+executable coral-smoke
+  main-is: Main.hs
+  other-modules:
+    Data.Compos,
+    Experiment,
+    Language.Coral.Syntax.Abstract,
+    Language.Coral.Syntax.Parse
+  build-depends:
+    base,
+    chameleon,
+    coral,
+    symbol,
+    text
+  hs-source-dirs: src
+  default-language: Haskell2010
+  default-extensions:
+    OverloadedStrings,
+    LambdaCase, ViewPatterns,
+    DataKinds, KindSignatures, PolyKinds,
+    RankNTypes, GADTs,
+    RecordWildCards, DuplicateRecordFields
