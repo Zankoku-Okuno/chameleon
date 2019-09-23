@@ -60,8 +60,8 @@ parseNest tokens = execParser (loop tokens) >>= drainStack
     drainStack [] = error "internal error"
     drainStack [Done it] = pure it
     drainStack stack = do
-        errs $ toErr <$> stack
-        pure undefined
+        fatals $ toErr <$> stack
+        error "internal error"
         where
         toErr Item{..} = UnmatchedDelimiter
             { expectedBefore = Cooked.theLocation $ last tokens
@@ -135,7 +135,7 @@ pop :: (DelimiterType, Location) -> Parser atom (Nest atom)
 pop (delim', closeAt) = P $ \(top@Item{..} : stack') ->
     if delim == delim'
     then pure (combine top, stack')
-    else err $ UnmatchedDelimiter
+    else fatal $ UnmatchedDelimiter -- FIXME error recovery is probably possible
         { openAt = openAt
         , expectedBefore = closeAt
         , ..
@@ -160,7 +160,7 @@ bufferSegment (sep', loc) = P $ \(top : stack) -> case sep (top :: StackItem ato
     Nothing -> pure ((), (addSep . alter) top : stack)
     Just (sep0, loc0) -> if sep0 == sep'
         then pure ((), alter top : stack)
-        else err UnexpectedSeparator
+        else fatal UnexpectedSeparator -- FIXME error recovery is definitely possible
             { sep = sep'
             , unexpectedAt = loc
             , expectedFrom = loc0

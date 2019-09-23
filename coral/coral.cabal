@@ -18,14 +18,17 @@ cabal-version:       >=1.10
 library
   exposed-modules:
     Experiment,
+    Language.Coral.Frontend.Error,
+    Language.Coral.Frontend.Scope,
     Language.Coral.Syntax.Abstract,
-    Language.Coral.Syntax.Parse
+    Language.Coral.Syntax.Parse,
+    Language.Coral.Syntax.Show
   other-modules:
-    Data.Compos
   build-depends:
     base >=4.9 && <5,
      -- TODO set verion bounds on chameleon
     chameleon,
+    containers >=0.5.8 && < 0.7,
     -- NOTE inherit the symbol version from chameleon
     symbol,
     text ==1.2.*
@@ -34,21 +37,26 @@ library
   default-extensions:
     OverloadedStrings,
     LambdaCase, ViewPatterns
-    DataKinds, KindSignatures, PolyKinds,
-    RankNTypes, GADTs,
     RecordWildCards, DuplicateRecordFields
-  -- other-extensions:    
+    DataKinds, KindSignatures, PolyKinds,
+    FlexibleContexts,
+    RankNTypes, GADTs, TypeFamilies
+  other-extensions:
+    UndecidableInstances
 
 executable coral-smoke
   main-is: Main.hs
   other-modules:
-    Data.Compos,
     Experiment,
+    Language.Coral.Frontend.Error,
+    Language.Coral.Frontend.Scope,
     Language.Coral.Syntax.Abstract,
-    Language.Coral.Syntax.Parse
+    Language.Coral.Syntax.Parse,
+    Language.Coral.Syntax.Show
   build-depends:
     base,
     chameleon,
+    containers,
     coral,
     symbol,
     text
@@ -57,6 +65,9 @@ executable coral-smoke
   default-extensions:
     OverloadedStrings,
     LambdaCase, ViewPatterns,
-    DataKinds, KindSignatures, PolyKinds,
-    RankNTypes, GADTs,
     RecordWildCards, DuplicateRecordFields
+    DataKinds, KindSignatures, PolyKinds,
+    FlexibleContexts,
+    RankNTypes, GADTs, TypeFamilies
+  other-extensions:
+    UndecidableInstances

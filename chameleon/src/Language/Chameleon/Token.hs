@@ -32,7 +32,7 @@ tokenize Config{..} filepath input = do
     let (errors, nonErrors) = partition ((`elem` errorOn) . Cooked.theErrType) issues
         (warnings, ignoredIssues) = partition ((`elem` warnAbout) . Cooked.theErrType) nonErrors
     warns warnings
-    errs errors
+    fatals errors
     pure cooked
     where
     (cooked, issues) = Cooked.clean Cooked.Config{Cooked.makeAtom = makeAtom, Cooked.openFileAs = openFileAs} raw

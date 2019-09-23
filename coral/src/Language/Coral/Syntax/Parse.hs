@@ -4,51 +4,34 @@ import Data.Symbol
 import Data.Text (Text)
 import qualified Data.Text as T
 
-import Data.List
-
-import Control.Monad.WarnErrs
-
-import Language.Coral.Syntax.Abstract hiding (Ast, Decl, Expr)
-import qualified Language.Coral.Syntax.Abstract as Ast
+import Language.Coral.Frontend.Error
+import Language.Coral.Syntax.Abstract
 import Language.Chameleon.Token (tokenize, Location(..), TokenError)
 import Language.Chameleon.Syntax
 import Language.Chameleon.StarterKit
 
 
-type Ann = Location
-
-type Ast cat = Ast.Ast Ann cat
-type Expr = Ast Expr_
-type Decl = Ast Decl_
-
-
-data CompileError -- FIXME move this to an error module
-    = TokenError TokenError
-    | SyntaxError SyntaxError
-    | GrammarError GrammarError
-    -- TODO scope error
-    -- TODO type error
-    deriving(Read, Show)
-
-data GrammarError = TODO
-  deriving(Read, Show)
+data L
+instance Lang L where
+    type Ann L = Location
+    type Var L = SourceName
 
 
-parse :: Maybe FilePath -> Text -> WarnErrs CompileError [Decl]
+parse :: Maybe FilePath -> Text -> WarnErrs CompileError [Decl L]
 parse filepath input = do
-    tokens <- tokenize fancyConfig filepath input `mapErrs` TokenError
-    nest <- parseNest tokens `mapErrs` SyntaxError
-    parseFile nest `mapErrs` GrammarError
+    tokens <- TokenError `mapErrs` tokenize fancyConfig filepath input
+    nest <- SyntaxError `mapErrs` parseNest tokens
+    GrammarError `mapErrs` parseFile nest
 
 
-parseFile :: Nest StarterAtom -> WarnErrs GrammarError [Decl]
+parseFile :: Nest StarterAtom -> WarnErrs GrammarError [Decl L]
 parseFile Comb{id = "__FILE__", segments = decls, ..} = parseDecl `mapM` decls
 
-parseDecl :: [Nest StarterAtom] -> WarnErrs GrammarError Decl
+parseDecl :: [Nest StarterAtom] -> WarnErrs GrammarError (Decl L)
 parseDecl [ Atom{atom = Variable "val", ..}
-          , Atom{atom = Variable x, location = Location{loc_end = end}}
+          , x@Atom{atom = Variable _, location = Location{loc_end = end}}
           , body
-          ] = DeclVal location{ loc_end = end } x <$> parseExpr body
+          ] = DeclVal location{ loc_end = end } <$> parseVar x <*> parseExpr body
 -- parseDecl [ Atom{atom = Variable "doc", ..}
 --           , Atom{atom = Variable "val"}
 --           , Atom{atom = Variable x}
@@ -56,8 +39,9 @@ parseDecl [ Atom{atom = Variable "val", ..}
 --           ] = pure $ DeclValDoc location{ loc_end = end } x docstr
 parseDecl [Comb{id = "let", segments = break (isKeyword "in") -> (local, tail -> ds), ..}]
     = DeclLet location <$> parseDecl `traverse` local <*> parseDecl `traverse` ds
+parseDecl it = error $ "parseDecl: " ++ show it
 
-parseExpr :: Nest StarterAtom -> WarnErrs GrammarError Expr
+parseExpr :: Nest StarterAtom -> WarnErrs GrammarError (Expr L)
 parseExpr Atom{atom = Integer i, ..}
     = pure $ ExprConst location (IntConst i)
 parseExpr Comb{id = "op", segments = [[Atom {atom = opname}]], ..}
@@ -65,9 +49,9 @@ parseExpr Comb{id = "op", segments = [[Atom {atom = opname}]], ..}
     where
     parseOpname (String name) = pure $ (intern . T.unpack) name
     parseOpname (Variable name) = pure name
-    parseOpname _ = err $ TODO
-parseExpr Atom{atom = Variable x, ..}
-    = pure $ ExprVar location x
+    parseOpname _ = fatal $ TODO_Grammar -- FIXME error recovery
+parseExpr x@Atom{atom = Variable _, ..}
+    = ExprVar location <$> parseVar x
 parseExpr Comb{id = "ap", segments = [e : es], ..} | notNull es
     = ExprApp location <$> parseExpr e <*> parseExpr `traverse` es
 parseExpr Comb{id = "fun", segments = [xs, [e]], ..} | notNull xs
@@ -77,34 +61,9 @@ parseExpr Comb{id = "let", segments = break (isKeyword "in") -> (ds, tail -> [[e
     = ExprLet location <$> parseDecl `traverse` ds <*> parseExpr e
 parseExpr it = error $ "parseExpr: " ++ show it
 
-parseVar :: Nest StarterAtom -> WarnErrs GrammarError Name
-parseVar Atom{atom = Variable x} = pure x
-parseVar _ = err $ TODO
-
-
-renderBack :: Ast.Ast cat ann -> String
-renderBack (DeclVal _ x e) = concat ["val ", unintern x, " ", renderBack e]
--- renderBack (DeclValDoc _ x text) = concat ["doc val ", unintern x, " ", show text]
-renderBack (DeclLet _ local ds) = concat
-    [ "let{"
-    , intercalate "; " $ renderBack <$> local
-    , " ; in ; "
-    , intercalate "; " $ renderBack <$> ds
-    , "}"
-    ]
-renderBack (ExprConst _ c) = case c of
-    IntConst i -> show i
-renderBack (ExprPrim _ op) = concat ["op(", show op, ")"]
-renderBack (ExprVar _ x) = unintern x
-renderBack (ExprApp _ e es) = concat ["ap(", intercalate " " $ renderBack <$> e:es, ")"]
-renderBack (ExprLam _ xs e) = concat ["fun(", intercalate " " $ unintern <$> xs, ", ", renderBack e, ")"]
-renderBack (ExprLet _ ds e) = concat
-    [ "let{"
-    , intercalate "; " $ renderBack <$> ds
-    , " ; in ; "
-    , renderBack e
-    , "}"
-    ]
+parseVar :: Nest StarterAtom -> WarnErrs GrammarError SourceName
+parseVar Atom{atom = Variable x} = pure $ ShortName x
+parseVar _ = fatal $ TODO_Grammar -- FIXME error recovery
 
 
 

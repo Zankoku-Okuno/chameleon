@@ -3,24 +3,26 @@ module Language.Coral.Syntax.Abstract where
 import Data.Symbol
 import Data.Text (Text)
 
-import Data.Compos
+
+class Lang l where
+    type Ann l :: *
+    type Var l :: *
+    -- type Const l :: AstCat -> * -- TODO
 
 
-type Name = Symbol -- FIXME parameterizable name --FIXME different categories of name
+data Decl l
+    = DeclVal (Ann l) (Var l) (Expr l)
+    -- DeclValDoc :: ann -> var OfExpr -> Text -> Decl ann var
+    | DeclLet (Ann l) [Decl l] [Decl l]
 
--- FIXME location data, or other annotations
-data Ast ann (cat :: AstCat) where
-    --- Declarations ---
-    DeclVal    :: ann -> Name -> Expr ann -> Decl ann
-    -- DeclValDoc :: ann -> Name -> Text -> Decl ann
-    DeclLet :: ann -> [Decl ann] -> [Decl ann] -> Decl ann
-    --- Expressions ---
-    ExprConst  :: ann -> Const -> Expr ann
-    ExprPrim   :: ann -> Symbol -> Expr ann -- FIXME parameterizable primitive operations
-    ExprVar    :: ann -> Symbol -> Expr ann
-    ExprApp    :: ann -> Expr ann -> [Expr ann] -> Expr ann
-    ExprLam    :: ann -> [Name] -> Expr ann -> Expr ann
-    ExprLet    :: ann -> [Decl ann] -> Expr ann -> Expr ann
+data Expr l
+    = ExprVar    (Ann l) (Var l)
+    | ExprApp    (Ann l) (Expr l) [Expr l]
+    | ExprLam    (Ann l) [Var l] (Expr l)
+    | ExprLet    (Ann l) [Decl l] (Expr l)
+    | ExprConst  (Ann l) Const
+    | ExprPrim   (Ann l) Symbol -- FIXME parameterizable primitive operations
+
 
 data Const -- FIXME parameterizable constant type
     = IntConst Integer
@@ -28,23 +30,58 @@ data Const -- FIXME parameterizable constant type
     -- | StrConst Text -- TODO
 
 
+{- In a normal multiplate, each field of the record is a coalgebra `A -> k A`.
+    Here, the type A is replaced by a (n-)functor `A x`, and the coalgebras become functorially-related families of co-algebras: `A x -> k (A x')`.
+    Perhaps it makes sense to call this technique a "Family Dinner"? Unless I still have co-algebras and this is a multiplate already.
+-}
+data Plate l l' t = P
+    { decl :: Decl l -> t (Decl l')
+    , expr :: Expr l -> t (Expr l')
+    , ann :: Ann l -> t (Ann l')
+    , var :: Var l -> t (Var l')
+    }
+
+multiplate :: Applicative t => Plate l l' t -> Plate l l' t
+multiplate super = P
+    { decl = \case
+        DeclVal a x e -> DeclVal <$> ann super a <*> var super x <*> expr super e
+        DeclLet a local ds -> DeclLet <$> ann super a <*> decl super `traverse` local <*> decl super `traverse` ds
+    , expr = \case
+        ExprVar a x -> ExprVar <$> ann super a <*> var super x
+        ExprApp a f es -> ExprApp <$> ann super a <*> expr super f <*> expr super `traverse` es
+        ExprLam a xs e -> ExprLam <$> ann super a <*> var super `traverse` xs <*> expr super e
+        ExprLet a ds e -> ExprLet <$> ann super a <*> decl super `traverse` ds <*> expr super e
+        ExprConst a c -> ExprConst <$> ann super a <*> pure c
+        ExprPrim a c -> ExprPrim <$> ann super a <*> pure c
+    , ann = ann super
+    , var = var super
+    }
+
+purePlate :: Applicative t => Plate l l t
+purePlate = P
+    { decl = pure
+    , expr = pure
+    , ann = pure
+    , var = pure
+    }
 
 
-data AstCat
-    = Decl_
-    | Expr_
+------ Representations of names used throughout compiler ------
 
-type Decl ann = Ast ann Decl_
-type Expr ann = Ast ann Expr_
+data SourceName
+    = ShortName Symbol
+    -- | LongName -- TODO long name
+    deriving(Eq, Ord, Show)
 
 
-instance Compos (Ast ann) where
-    compos f (DeclVal ann x e) = DeclVal ann x <$> f e
-    -- compos f (DeclValDoc ann x text) = pure $ DeclValDoc ann x text
-    compos f (DeclLet ann local ds) = DeclLet ann <$> f `traverse` local <*> f `traverse` ds
-    compos f (ExprConst ann c) = pure $ ExprConst ann c
-    compos f (ExprPrim ann opname) = pure $ ExprPrim ann opname
-    compos f (ExprVar ann x) = pure $ ExprVar ann x
-    compos f (ExprApp ann e es) = ExprApp ann <$> f e <*> f `traverse` es
-    compos f (ExprLam ann x e) = ExprLam ann x <$> f e
-    compos f (ExprLet ann ds e) = ExprLet ann <$> f `traverse` ds <*> f e
+data NamePart
+    = SourceName Symbol
+    | GenName Symbol
+    -- | Synonym QualName -- TODO maybe I need this?
+    deriving(Show)
+
+data QualName = QName
+    { sourceName :: SourceName
+    , qualName :: [NamePart] -- TODO use Seq
+    }
+    deriving(Show)
